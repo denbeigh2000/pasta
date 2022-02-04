@@ -1,4 +1,3 @@
-use std::env::args;
 use std::net::SocketAddr;
 use std::string::FromUtf8Error;
 
@@ -9,6 +8,7 @@ use axum::routing::{get, post};
 use axum::{AddExtensionLayer, Router, body};
 use bb8::{Pool, RunError};
 use bb8_redis::RedisConnectionManager;
+use clap::Parser;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use redis::{AsyncCommands, RedisError};
@@ -16,13 +16,20 @@ use thiserror::Error;
 
 const EXPIRY_SECS: usize = 60 * 30;
 
+#[derive(Parser)]
+struct Args {
+    #[clap(short, long, default_value = "redis://127.0.0.1:6379", env = "REDIS_URL")]
+    redis_url: String,
+
+    #[clap(short, long, default_value = "0.0.0.0:3000", env = "BIND_ADDR")]
+    bind_addr: SocketAddr,
+}
+
 #[tokio::main]
 async fn main() {
-    let addr = args()
-        .nth(1)
-        .unwrap_or_else(|| "redis://localhost:6379".to_string());
+    let args = Args::parse();
 
-    let manager = RedisConnectionManager::new(addr).unwrap();
+    let manager = RedisConnectionManager::new(args.redis_url).unwrap();
     let pool = Pool::builder().build(manager).await.unwrap();
 
     let app: Router<_> = Router::new()
@@ -30,8 +37,7 @@ async fn main() {
         .route("/paste", post(create_paste))
         .layer(AddExtensionLayer::new(pool));
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-    axum::Server::bind(&addr)
+    axum::Server::bind(&args.bind_addr)
         .serve(app.into_make_service())
         .await
         .unwrap();
